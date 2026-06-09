@@ -1,0 +1,136 @@
+#!/bin/bash
+
+# ==============================================================================
+# Program: chkchg
+# Version: 2.0
+# Description: 第2パラメータの変化点を抽出し、指定した閾値（以上/以下）の時のみ出力。
+#              値が変化している間をブロックとし、安定したら --- で区切る。
+#              閾値外や安定区間は ::: で集約し、小数点を含む値は16進数化しない。
+# Author: Masafumi Horimoto <mh@ys-lab.tech>,<horimoto.masafumi.470@s.kyushu-u.ac.jp>
+# Usage: ./chkchg [-a min_val] [-b max_val] [-m 304] <filename>
+#        -a : 指定した値「以上」のデータのみ表示 (Above)
+#        -b : 指定した値「以下」のデータのみ表示 (Below)
+#        -m 304 : M304固有のメッセージ表示
+# License: MIT License (https://opensource.org/licenses/MIT)
+# Copyright (c) 2025 Masafumi Horimoto
+# ==============================================================================
+
+# デフォルト設定
+MIN_VAL=""
+MAX_VAL=""
+M_OPTION=""
+
+while getopts "a:b:m:" opt; do
+  case $opt in
+    a) MIN_VAL=$OPTARG ;;
+    b) MAX_VAL=$OPTARG ;;
+    m) M_OPTION=$OPTARG ;;
+    *) echo "Usage: $0 [-a min] [-b max] [-m val] <filename>"; exit 1 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+if [ -z "$1" ]; then
+    echo "Usage: $0 [-a min] [-b max] [-m val] <filename>"
+    exit 1
+fi
+
+awk -F, -v min="$MIN_VAL" -v max="$MAX_VAL" -v m_opt="$M_OPTION" '
+    function format_val(v) {
+        s_v = v "" # 文字列として扱う
+        
+        # 1. マジックナンバーの置換 (-m 304)
+        if (m_opt == "304") {
+            if (v == 131074) return "CHG PARAM FROM WEB"
+            if (v == 132944) return "PARAM INIT LOAD FROM EEPROM"
+            if (v == 395264) return "COLD REBOOT"
+            if (v == 135167) return "HOT REBOOT"
+            if (v == 2064  ) return "IGNORE DHCP"
+        }
+        
+        # 2. 小数点が含まれる場合は物理量（温度等）とみなし、16進数化をスキップ
+        if (s_v ~ /\./) return s_v
+
+        # 3. 整数かつ256未満なら16進数（ステータスコード等）
+        if (s_v != "" && s_v == int(s_v) && s_v < 256) {
+            return sprintf("0x%X", s_v)
+        }
+        return s_v
+    }
+
+    function is_target(v) {
+        if (min != "" && v < min) return 0
+        if (max != "" && v > max) return 0
+        return 1
+    }
+
+    function print_row(line, val) {
+        split(line, parts, ",")
+        formatted = sprintf("%s,%s", parts[1], format_val(val))
+        if (formatted != last_printed) {
+            print formatted
+            last_printed = formatted
+            return 1
+        }
+        return 0
+    }
+
+    BEGIN {
+        in_block = 0
+        skip_total = 0
+    }
+
+    {
+        if (NR == 1) {
+            prev_val = $2; prev_line = $0; next
+        }
+
+        # 閾値判定
+        current_is_target = is_target($2)
+
+        if (current_is_target) {
+            if ($2 != prev_val) {
+                # --- 値が変化した ---
+                if (skip_total > 0) {
+                    label = (min=="" && max=="") ? "stable rows" : "rows outside of conditions/stable"
+                    print ":::(skipped " skip_total " " label "):::"
+                    skip_total = 0
+                }
+                if (in_block == 0) {
+                    print_row(prev_line, prev_val)
+                    in_block = 1
+                }
+                print_row($0, $2)
+            } else {
+                # --- 値が同じ（安定） ---
+                if (in_block == 1) {
+                    # 変化が止まったので、ブロックの終端を出力して閉じる
+                    print_row($0, $2)
+                    print "---"
+                    in_block = 0
+                } else {
+                    skip_total++
+                }
+            }
+        } else {
+            # --- 閾値外 ---
+            if (in_block == 1) {
+                print_row($0, $2)
+                print "---"
+                in_block = 0
+            }
+            skip_total++
+        }
+
+        prev_val = $2
+        prev_line = $0
+    }
+
+    END {
+        if (skip_total > 0) {
+            label = (min=="" && max=="") ? "stable rows" : "rows outside of conditions/stable"
+            print ":::(skipped " skip_total " " label "):::"
+        }
+        if (in_block == 1) print "---"
+    }
+' "$1"

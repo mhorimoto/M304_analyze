@@ -1,0 +1,46 @@
+#! /bin/sh
+
+# ----------------------------------------------------------------------
+# 目的: 標準入力で受け取ったXMLデータから特定のタグを除去し、
+#       CSV形式（date time, value）で標準出力に出力する。
+#
+# 使用法:
+#   echo "..." | ./uecs_xml2csv <type> <room> <region> <order> <priority> <IP>
+#   または
+#   ./uecs_xml2csv <type> <room> <region> <order> <priority> <IP> < input_file.xml
+#
+# 例（元のXMLの構造に対応する場合）:
+#   ./xml2csv.sh PPFD 45 2 1 15 192.168.179.122 < 192x168x179x122-PPFD.txt
+# License: MIT License (https://opensource.org/licenses/MIT)
+# Copyright (c) 2025 Masafumi Horimoto
+# ----------------------------------------------------------------------
+
+# パラメータのチェック
+if [ "$#" -ne 6 ]; then
+  echo "エラー: 6つの引数が必要です。" >&2
+  echo "使用法: $0 <type> <room> <region> <order> <priority> <IP>" >&2
+  exit 1
+fi
+
+# 引数を変数に代入
+TYPE="$1"
+ROOM="$2"
+REGION="$3"
+ORDER="$4"
+PRIORITY="$5"
+IP="$6"
+
+# IPアドレスのドットをエスケープ
+# sedの正規表現では.は特殊文字なので、リテラルとして扱うために\.に置換
+ESCAPED_IP=$(echo "$IP" | sed 's/\./\\./g')
+
+# XMLの開始タグ全体を , に置換するための正規表現パターン
+# $TYPE, $ROOM, $REGION, $ORDER, $PRIORITYの変数値を使用
+START_PATTERN=$(echo " <?xml version=\"1.0\"?><UECS ver=\"1.00-E10\"><DATA type=\"${TYPE}\" room=\"${ROOM}\" region=\"${REGION}\" order=\"${ORDER}\" priority=\"${PRIORITY}\">" | sed 's/"/\\"/g')
+# XMLの終了タグ全体を除去するための正規表現パターン
+# $ESCAPED_IPの変数値を使用
+END_PATTERN="<\/DATA><IP>${ESCAPED_IP}<\/IP><\/UECS>"
+
+# sedとawkによる変換処理
+# sedの区切り文字として;を使用（/や"がパターンに含まれるため）
+sed "s:${START_PATTERN}:,: ;s:${END_PATTERN}$:: ;s/ /,/"  | awk -F ',' '{print $2" "$1","$3}'

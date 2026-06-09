@@ -1,0 +1,5 @@
+00:00:00 2026-06-09 <?xml version="1.0"?><UECS ver="1.00-E10"><DATA type="cnd" room="7" region="1" order="1" priority="29">0</DATA><IP>192.168.120.177</IP></UECS>
+00:00:00 2026-06-09 <?xml version="1.0"?><UECS ver="1.00-E10"><DATA type="cnd.mMC" room="2" region="1" order="1" priority="29">0</DATA><IP>192.168.120.66</IP></UECS>
+00:00:00 2026-06-09 <?xml version="1.0"?><UECS ver="1.00-E10"><DATA type="cnd" room="7" region="1" order="2" priority="29">0</DATA><IP>192.168.120.178</IP></UECS>
+00:00:00 2026-06-09 <?xml version="1.0"?><UECS ver="1.00-E10"><DATA type="cnd" room="7" region="2" order="1" priority="29">0</DATA><IP>192.168.120.179</IP></UECS>
+
