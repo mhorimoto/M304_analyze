@@ -1,0 +1,134 @@
+#!/bin/bash
+# ==============================================================================
+# fetch_cnd_logs — 日付範囲を指定してリレー状態ログを一括取得する
+#
+# 使用法:
+#   fetch_cnd_logs [オプション] <開始日> <終了日>
+#
+# オプション:
+#   -i IP         対象ノードのIPアドレス（必須）
+#   -t TYPE       CCM種別（デフォルト: cnd）
+#   -r ROOM       room番号（必須）
+#   -g REGION     region番号（デフォルト: 1）
+#   -o ORDER      order番号（必須）
+#   -p PRIORITY   priority番号（デフォルト: 29）
+#   -d OUT_DIR    出力ディレクトリ（必須）
+#   -b BASE_DIR   ログアーカイブのベースディレクトリ
+#                 （デフォルト: /data1/uecs-data-pool）
+#   -h            このヘルプを表示
+#
+# 例:
+#   fetch_cnd_logs -i 192.168.120.193 -r 7 -g 4 -o 5 -d m304s08 20260701 20260707
+#
+#   # CCM種別を変える場合（デフォルトはcnd）
+#   fetch_cnd_logs -i 192.168.120.50 -t InRadiation -r 3 -o 1 -d m304s08 20260701 20260707
+# ==============================================================================
+
+# デフォルト値
+BASE_DIR="/data1/uecs-data-pool"
+CCM_TYPE="cnd"
+REGION="1"
+PRIORITY="29"
+
+usage() {
+  sed -n '/^# 使用法/,/^# ==/p' "$0" | sed 's/^# \?//'
+  exit 1
+}
+
+# オプション解析
+while getopts "i:t:r:g:o:p:d:b:h" OPT; do
+  case "$OPT" in
+    i) TARGET_IP="$OPTARG" ;;
+    t) CCM_TYPE="$OPTARG" ;;
+    r) ROOM="$OPTARG" ;;
+    g) REGION="$OPTARG" ;;
+    o) ORDER="$OPTARG" ;;
+    p) PRIORITY="$OPTARG" ;;
+    d) OUT_DIR="$OPTARG" ;;
+    b) BASE_DIR="$OPTARG" ;;
+    h) usage ;;
+    *) usage ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+# 必須引数チェック
+ERRORS=""
+[ -z "$TARGET_IP" ] && ERRORS="${ERRORS}  -i IP が必要です\n"
+[ -z "$ROOM"      ] && ERRORS="${ERRORS}  -r ROOM が必要です\n"
+[ -z "$ORDER"     ] && ERRORS="${ERRORS}  -o ORDER が必要です\n"
+[ -z "$OUT_DIR"   ] && ERRORS="${ERRORS}  -d OUT_DIR が必要です\n"
+[ $# -ne 2        ] && ERRORS="${ERRORS}  開始日・終了日が必要です\n"
+
+if [ -n "$ERRORS" ]; then
+  echo "エラー:" >&2
+  printf "$ERRORS" >&2
+  echo "" >&2
+  usage
+fi
+
+# 日付を YYYYMMDD 形式に正規化する関数
+normalize_date() {
+  local D=$(echo "$1" | tr '/' '-')
+  [[ "$D" =~ ^[0-9]{8}$ ]] && D="${D:0:4}-${D:4:2}-${D:6:2}"
+  date -d "$D" "+%Y%m%d" 2>/dev/null
+}
+
+DATE_FROM=$(normalize_date "$1")
+DATE_TO=$(normalize_date "$2")
+
+if [ -z "$DATE_FROM" ] || [ -z "$DATE_TO" ]; then
+  echo "エラー: 日付の形式が不正です" >&2
+  exit 1
+fi
+
+if [ "$DATE_FROM" -gt "$DATE_TO" ]; then
+  echo "エラー: 開始日が終了日より後になっています" >&2
+  exit 1
+fi
+
+mkdir -p "$OUT_DIR"
+
+# 1日分のデータを取得する関数
+fetch_one_day() {
+  local DATE="$1"
+
+  local YEAR="${DATE:0:4}"
+  local MONTH="${DATE:4:2}"
+  local LOG_PATH="${BASE_DIR}/${YEAR}/${MONTH}/rx.log.${DATE}.gz"
+
+  # 前日（出力ファイル名用）
+  local DATE_PREV=$(date -d "${YEAR}-${MONTH}-${DATE:6:2} -1 day" "+%Y%m%d")
+  local OUT_FILE="${OUT_DIR}/cnd${DATE_PREV}.csv"
+
+  if [ ! -f "$LOG_PATH" ]; then
+    echo "  [skip] ファイルなし: $LOG_PATH"
+    return
+  fi
+
+  echo "  $LOG_PATH → $OUT_FILE"
+  zgrep "$TARGET_IP" "$LOG_PATH" | grep " ${CCM_TYPE} \| ${CCM_TYPE}>" | \
+    uecs_xml2csv "$CCM_TYPE" "$ROOM" "$REGION" "$ORDER" "$PRIORITY" "$TARGET_IP" \
+    > "$OUT_FILE"
+
+  local LINES=$(wc -l < "$OUT_FILE")
+  echo "    → ${LINES} レコード"
+}
+
+# ======================================================
+# メインループ
+# ======================================================
+echo "取得範囲: $DATE_FROM 〜 $DATE_TO"
+echo "ノード:   $TARGET_IP  type=$CCM_TYPE  room=$ROOM region=$REGION order=$ORDER priority=$PRIORITY"
+echo "出力先:   $OUT_DIR/"
+echo ""
+
+CURRENT="$DATE_FROM"
+while [ "$CURRENT" -le "$DATE_TO" ]; do
+  echo "[$CURRENT]"
+  fetch_one_day "$CURRENT"
+  CURRENT=$(date -d "${CURRENT:0:4}-${CURRENT:4:2}-${CURRENT:6:2} +1 day" "+%Y%m%d")
+done
+
+echo ""
+echo "完了"
