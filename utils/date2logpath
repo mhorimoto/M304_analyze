@@ -1,0 +1,54 @@
+#!/bin/bash
+# ==============================================================================
+# date2logpath — 日付指定を rx.log アーカイブのパスに変換する
+#
+# 使用法:
+#   date2logpath <日付> [ベースディレクトリ]
+#
+# 日付の書き方（以下すべて同じ結果になる）:
+#   20260702
+#   2026-07-02
+#   2026-7-2
+#   2026/07/02
+#   2026/7/2
+#
+# 例:
+#   date2logpath 20260702
+#   → /data1/uecs-data-pool/2026/07/rx.log.20260702.gz
+#
+#   zgrep 192.168.120.193 $(date2logpath 20260702) | grep cnd | ...
+#
+#   # ベースディレクトリを変更する場合
+#   date2logpath 2026-7-2 /mnt/backup
+#   → /mnt/backup/2026/07/rx.log.20260702.gz
+# ==============================================================================
+
+BASE_DIR="${2:-/data1/uecs-data-pool}"
+DATE_STR="$1"
+
+if [ -z "$DATE_STR" ]; then
+  echo "使用法: $0 <日付> [ベースディレクトリ]" >&2
+  echo "  日付例: 20260702 / 2026-07-02 / 2026-7-2 / 2026/07/02" >&2
+  exit 1
+fi
+
+# / を - に統一してから date コマンドでパース（月・日の1桁を0埋め）
+NORMALIZED=$(echo "$DATE_STR" | tr '/' '-')
+
+# 8桁の場合（20260702）は YYYY-MM-DD 形式に変換してからパース
+if [[ "$NORMALIZED" =~ ^[0-9]{8}$ ]]; then
+  NORMALIZED="${NORMALIZED:0:4}-${NORMALIZED:4:2}-${NORMALIZED:6:2}"
+fi
+
+# date コマンドで正規化（月・日を0埋め）
+PARSED=$(date -d "$NORMALIZED" "+%Y%m%d" 2>/dev/null)
+
+if [ -z "$PARSED" ]; then
+  echo "エラー: 日付の形式が不正です: $DATE_STR" >&2
+  exit 1
+fi
+
+YEAR="${PARSED:0:4}"
+MONTH="${PARSED:4:2}"
+
+echo "${BASE_DIR}/${YEAR}/${MONTH}/rx.log.${PARSED}.gz"
