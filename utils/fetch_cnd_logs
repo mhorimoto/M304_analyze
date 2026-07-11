@@ -107,9 +107,10 @@ fetch_one_day() {
   fi
 
   echo "  $LOG_PATH → $OUT_FILE"
-  zgrep "$TARGET_IP" "$LOG_PATH" | grep " ${CCM_TYPE} \| ${CCM_TYPE}>" | \
+  zgrep "$TARGET_IP" "$LOG_PATH" | grep \"${CCM_TYPE}\" | \
     uecs_xml2csv "$CCM_TYPE" "$ROOM" "$REGION" "$ORDER" "$PRIORITY" "$TARGET_IP" \
     > "$OUT_FILE"
+  #echo "zgrep \"$TARGET_IP\" \"$LOG_PATH\" | grep \" ${CCM_TYPE} \\| ${CCM_TYPE}>\" | uecs_xml2csv \"$CCM_TYPE\" \"$ROOM\" \"$REGION\" \"$ORDER\" \"$PRIORITY\" \"$TARGET_IP\" > \"$OUT_FILE\""
 
   local LINES=$(wc -l < "$OUT_FILE")
   echo "    → ${LINES} レコード"
